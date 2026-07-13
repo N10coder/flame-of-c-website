@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef,  } from "react";
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -420,8 +420,8 @@ figureMixer = new THREE.AnimationMixer(figureModel);
 const armsRestClip = THREE.AnimationClip.findByName(gltf.animations, 'ArmsRest');
 const namasteClip = THREE.AnimationClip.findByName(gltf.animations, 'Namaste');
 
-armsRestAction = figureMixer.clipAction(armsRestClip);
-namasteAction = figureMixer.clipAction(namasteClip);
+armsRestAction = figureMixer.clipAction(armsRestClip!);
+namasteAction = figureMixer.clipAction(namasteClip!);
 
 [armsRestAction, namasteAction].forEach((action) => {
 action.play();
