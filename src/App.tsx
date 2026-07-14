@@ -35,7 +35,7 @@ scene.background = new THREE.Color(0x000005);
 // CAMERA + PIVOT
 const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 const fov = W / H < 1 ? 60 : 35;
-const camera = new THREE.PerspectiveCamera(fov, W/H, 0.1, 1000)
+const camera = new THREE.PerspectiveCamera(fov, W/H, 0.1, 3000)
 const camDist = isMobile ? 780 : 580;
 const camY = isMobile ? -25 : -10;
 const pivot = new THREE.Object3D();
