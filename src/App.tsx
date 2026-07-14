@@ -16,11 +16,11 @@ const mount = mountRef.current!;
 
 // Drag hint arrows
 const hint = document.createElement('div');
-hint.innerHTML = '⟵ drag to look around ⟶';
-hint.style.cssText = 'position:fixed;bottom:60px;left:0;right:0;text-align:center;color:white;font-size:16px;font-family:sans-serif;opacity:0.9;pointer-events:none;z-index:1000;transition:opacity 1s;';
+hint.innerHTML = '⟵ DRAG TO LOOK AROUND ⟶';
+hint.style.cssText = 'position:fixed;bottom:60px;left:0;right:0;text-align:center;color:#00eaff;font-size:20px;font-weight:bold;font-family:sans-serif;text-shadow:0 0 8px #00eaff,0 0 4px #000;opacity:0.95;pointer-events:none;z-index:1000;transition:opacity 1.5s;';
 document.body.appendChild(hint);
-setTimeout(() => { hint.style.opacity = '0'; }, 3000);
-setTimeout(() => { hint.remove(); }, 4000);
+setTimeout(() => { hint.style.opacity = '0'; }, 6000);
+setTimeout(() => { hint.remove(); }, 7500);
 
 const W = window.innerWidth;
 const H = window.innerHeight;
@@ -36,11 +36,13 @@ scene.background = new THREE.Color(0x000005);
 const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 const fov = W / H < 1 ? 60 : 35;
 const camera = new THREE.PerspectiveCamera(fov, W/H, 0.1, 1000)
+const camDist = isMobile ? 780 : 580;
+const camY = isMobile ? -25 : -10;
 const pivot = new THREE.Object3D();
-pivot.position.set(0, 0, -50);
+pivot.position.set(0, camY, camDist); // pivot IS the camera's eye position now
 scene.add(pivot);
 pivot.add(camera);
-camera.position.set(0, -10, 580);
+camera.position.set(0, 0, 0); // zero offset — rotating pivot just turns the view, no swinging
 camera.lookAt(0, -10, -50);
 
 // RENDERER
@@ -947,7 +949,7 @@ composer.setSize(newW, newH);
 window.addEventListener("resize", onResize);
 
 let drag=false, prevX=0, rotY=0, targetRotY=0;
-const ROT_LIMIT = 0.5; // max look-around angle, in radians (~28 degrees each way)
+const ROT_LIMIT = isMobile ? 1.15: 0.6; // max look-around angle, in radians
 const onDown=(e:MouseEvent)=>{drag=true;prevX=e.clientX;};
 const onMove=(e:MouseEvent)=>{
 if(!drag)return;
@@ -975,7 +977,8 @@ let t=0;
 const loop=()=>{
 t+=.012;
 
-rotY += (targetRotY - rotY) * 0.08;
+rotY += (targetRotY - rotY) * 0.05;
+
 pivot.rotation.y = rotY;
 
 
