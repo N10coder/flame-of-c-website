@@ -24,7 +24,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000005);
 
 // CAMERA + PIVOT
-const camera = new THREE.PerspectiveCamera(35, W/H, 0.1, 1000);
+const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+const fov = W / H < 1 ? 60 : 35;
+const camera = new THREE.PerspectiveCamera(fov, W/H, 0.1, 1000)
 const pivot = new THREE.Object3D();
 pivot.position.set(0, 0, -50);
 scene.add(pivot);
@@ -35,7 +37,7 @@ camera.lookAt(0, -10, -50);
 // RENDERER
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(W, H);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setPixelRatio(isMobile ? 1 : Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -47,7 +49,7 @@ mount.appendChild(VRButton.createButton(renderer));
 // BLOOM
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(W/1.5,H/1.5), 0.6, 0.4, 0.3));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(isMobile ? W/3 : W/1.5, isMobile ? H/3 : H/1.5), 0.6, 0.4, 0.3));
 
 
 // LIGHTS
