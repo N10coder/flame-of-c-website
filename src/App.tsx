@@ -13,6 +13,15 @@ const mountRef = useRef<HTMLDivElement>(null);
 
 useEffect(() => {
 const mount = mountRef.current!;
+
+// Drag hint arrows
+const hint = document.createElement('div');
+hint.innerHTML = '⟵ drag to look around ⟶';
+hint.style.cssText = 'position:fixed;bottom:60px;left:0;right:0;text-align:center;color:white;font-size:16px;font-family:sans-serif;opacity:0.9;pointer-events:none;z-index:1000;transition:opacity 1s;';
+document.body.appendChild(hint);
+setTimeout(() => { hint.style.opacity = '0'; }, 3000);
+setTimeout(() => { hint.remove(); }, 4000);
+
 const W = window.innerWidth;
 const H = window.innerHeight;
 
@@ -44,7 +53,11 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
 renderer.xr.enabled = true;
 mount.appendChild(renderer.domElement);
+try {
 mount.appendChild(VRButton.createButton(renderer));
+} catch (e) {
+console.log('VR not supported on this device');
+}
 
 // BLOOM
 const composer = new EffectComposer(renderer);
@@ -933,20 +946,22 @@ composer.setSize(newW, newH);
 };
 window.addEventListener("resize", onResize);
 
-let drag=false, prevX=0, rotY=0;
+let drag=false, prevX=0, rotY=0, targetRotY=0;
+const ROT_LIMIT = 0.5; // max look-around angle, in radians (~28 degrees each way)
 const onDown=(e:MouseEvent)=>{drag=true;prevX=e.clientX;};
 const onMove=(e:MouseEvent)=>{
 if(!drag)return;
-rotY=Math.max(-3,Math.min(3,rotY+(e.clientX-prevX)*0.001));
+targetRotY=Math.max(-ROT_LIMIT,Math.min(ROT_LIMIT,targetRotY+(e.clientX-prevX)*0.0015));
 prevX=e.clientX;
 };
 const onUp=()=>{drag=false;};
 const onTouchStart=(e:TouchEvent)=>{drag=true;prevX=e.touches[0].clientX;};
 const onTouchMove=(e:TouchEvent)=>{
 if(!drag)return;
-rotY=Math.max(-3,Math.min(3,rotY+(e.touches[0].clientX-prevX)*0.001));
+targetRotY=Math.max(-ROT_LIMIT,Math.min(ROT_LIMIT,targetRotY+(e.touches[0].clientX-prevX)*0.0015));
 prevX=e.touches[0].clientX;
 };
+
 const onTouchEnd=()=>{drag=false;};
 window.addEventListener("mousedown",onDown);
 window.addEventListener("mousemove",onMove);
@@ -960,7 +975,9 @@ let t=0;
 const loop=()=>{
 t+=.012;
 
+rotY += (targetRotY - rotY) * 0.08;
 pivot.rotation.y = rotY;
+
 
 fireParticles.forEach(spr => {
 spr.userData.phase += 0.06 * spr.userData.speed;
