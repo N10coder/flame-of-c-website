@@ -320,10 +320,10 @@ addPlane(RD, RH+50, HW-1,25, 0, -Math.PI/2, glassInnerMat);
 
 
 // ── FLOOR ──
-addBox(2000, 1, 2000, 0, -HH-0.5, 0, floorMat);
+addBox(BW+100, 1, 2000, 0, -HH-0.5, 0, floorMat);
 
 // ── CEILING ──
-addBox(2000, 1, 2000, 0, HH+50, 0, ceilMat);
+addBox(BW+100, 1, 2000, 0, HH+50, 0, ceilMat);
 
 // ── CYAN CEILING NEON ──
 addBox(BW, 4, 4, 0, HH+50, -HD, dimMat);
