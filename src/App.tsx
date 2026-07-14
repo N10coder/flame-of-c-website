@@ -309,21 +309,21 @@ videoScreen.position.set(0, 25, -HD + 2);
 scene.add(videoScreen);
 
 // ── GLASS WALLS — 2 layers ──
-addPlane(BW, RH+50, 0, 25, -HD, 0, glassMat);
-addPlane(BW, RH+50, 0, 25, -HD+1, 0, glassInnerMat);
+addPlane(BW, 700, 0, 25, -HD, 0, glassMat);
+addPlane(BW, 700, 0, 25, -HD+1, 0, glassInnerMat);
 const sideGlassMat = glassMat.clone();
 sideGlassMat.transmission = 0.3;
-addPlane(RD, RH+50, -HW, 25, 0, Math.PI/2, sideGlassMat);
-addPlane(RD, RH+50, -HW+1,25, 0, Math.PI/2, glassInnerMat);
-addPlane(RD, RH+50, HW, 25, 0, -Math.PI/2, sideGlassMat);
-addPlane(RD, RH+50, HW-1,25, 0, -Math.PI/2, glassInnerMat);
+addPlane(RD, 700, -HW, 25, 0, Math.PI/2, sideGlassMat);
+addPlane(RD, 700, -HW+1,25, 0, Math.PI/2, glassInnerMat);
+addPlane(RD, 700, HW, 25, 0, -Math.PI/2, sideGlassMat);
+addPlane(RD, 700, HW-1,25, 0, -Math.PI/2, glassInnerMat);
 
 
 // ── FLOOR ──
-addBox(BW, 1, RD, 0, -HH-0.5, 0, floorMat);
+addBox(BW, 1, RD, 0, -300, 0, floorMat);
 
 // ── CEILING ──
-addBox(BW, 1, RD, 0, HH+50, 0, ceilMat);
+addBox(BW, 1, RD, 0, 300, 0, ceilMat);
 
 // ── CYAN CEILING NEON ──
 addBox(BW, 4, 4, 0, HH+50, -HD, dimMat);
