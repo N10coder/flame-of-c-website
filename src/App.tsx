@@ -949,7 +949,7 @@ composer.setSize(newW, newH);
 window.addEventListener("resize", onResize);
 
 let drag=false, prevX=0, rotY=0, targetRotY=0;
-const ROT_LIMIT = isMobile ? 1.15: 0.6; // max look-around angle, in radians
+const ROT_LIMIT = isMobile ? 0.35: 0.25; // max look-around angle, in radians
 const onDown=(e:MouseEvent)=>{drag=true;prevX=e.clientX;};
 const onMove=(e:MouseEvent)=>{
 if(!drag)return;
