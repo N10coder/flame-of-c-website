@@ -5,7 +5,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { VRButton } from "three/examples/jsm/webxr/VRButton.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-
+import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 export default function App() {
 const [muted, setMuted] = React.useState(true);
 const videoRef = React.useRef<HTMLVideoElement|null>(null);
@@ -22,28 +22,153 @@ document.body.appendChild(hint);
 setTimeout(() => { hint.style.opacity = '0'; }, 6000);
 setTimeout(() => { hint.remove(); }, 7500);
 
+RectAreaLightUniformsLib.init();
+
 const W = window.innerWidth;
 const H = window.innerHeight;
+
 
 // ROOM DIMENSIONS
 const BW=550, RH=160, RD=550, HW=275, HH=80, HD=275;
 
+// ── STARFIELD SKYBOX ──
+const skyCanvas = document.createElement('canvas');
+skyCanvas.width = 2048; skyCanvas.height = 1024;
+const skyCtx = skyCanvas.getContext('2d')!;
+skyCtx.fillStyle = '#000008';
+skyCtx.fillRect(0, 0, 2048, 1024);
+
+// Nebula glows
+const nebulae = [
+{x:1150, y:175, r:60, c:'rgba(120,60,180,0.25)'},
+{x:50, y:165, r:75, c:'rgba(200,100,50,0.15)'},
+{x:100, y:100, r:100, c:'rgba(60,100,200,0.2)'},
+];
+nebulae.forEach(n => {
+const g = skyCtx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r);
+g.addColorStop(0, n.c);
+g.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = g;
+skyCtx.fillRect(n.x-n.r, n.y-n.r, n.r*2, n.r*2);
+});
+
+// Stars
+const starData: {x:number,y:number,r:number,baseA:number,speed:number,twinkles:boolean}[] = [];
+for (let i=0; i<1500; i++) {
+const x = Math.random()*2048, y = Math.random()*1024;
+const r = Math.random()*0.9 + 0.15;
+const a = Math.random()*0.5 + 0.5;
+starData.push({x,y,r,baseA:a, speed: Math.random()*1.5+0.3, twinkles: Math.random() > 0.4});
+skyCtx.fillStyle = `rgba(255,255,255,${a})`;
+skyCtx.beginPath(); skyCtx.arc(x,y,r,0,Math.PI*2); skyCtx.fill();
+}
+
+// Distant planets
+// TEMP: adjust x/y for each to position them. Canvas is 2048 wide, 1024 tall.
+const planets = [
+{x:50, y:165, r:5, c1:'#cc8855', c2:'#663322'},
+{x:1200, y:75, r:5, c1:'#88aacc', c2:'#334455'},
+{x:1150, y:175, r:10, c1:'#aa6688', c2:'#442233'},
+];
+planets.forEach(p => {
+const g = skyCtx.createRadialGradient(p.x-p.r*0.4,p.y-p.r*0.4,p.r*0.1,p.x,p.y,p.r*1.1);
+g.addColorStop(0, p.c1);
+g.addColorStop(0.6, p.c2);
+g.addColorStop(1, '#000000');
+skyCtx.fillStyle = g;
+skyCtx.beginPath(); skyCtx.arc(p.x,p.y,p.r,0,Math.PI*2); skyCtx.fill();
+skyCtx.save();
+skyCtx.beginPath(); skyCtx.arc(p.x,p.y,p.r,0,Math.PI*2); skyCtx.clip();
+const shadow = skyCtx.createRadialGradient(p.x+p.r*0.5,p.y+p.r*0.5,0,p.x+p.r*0.3,p.y+p.r*0.3,p.r*1.2);
+shadow.addColorStop(0, 'rgba(0,0,0,0.55)');
+shadow.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = shadow;
+skyCtx.fillRect(p.x-p.r,p.y-p.r,p.r*2,p.r*2);
+skyCtx.restore();
+});
+// Black hole with accretion disk
+const bh = {x:1050, y:130, r:5};
+const diskGrad = skyCtx.createRadialGradient(bh.x,bh.y,bh.r,bh.x,bh.y,bh.r*3);
+diskGrad.addColorStop(0, 'rgba(255,255,220,1.0)');
+diskGrad.addColorStop(0.25, 'rgba(255,200,120,1.0)');
+diskGrad.addColorStop(0.55, 'rgba(255,140,70,0.8)');
+diskGrad.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = diskGrad;
+skyCtx.beginPath(); skyCtx.ellipse(bh.x,bh.y,bh.r*3,bh.r*1,0,0,Math.PI*2); skyCtx.fill();
+skyCtx.fillStyle = '#000000';
+skyCtx.beginPath(); skyCtx.arc(bh.x,bh.y,bh.r,0,Math.PI*2); skyCtx.fill();
+
+// Spiral galaxy smudge
+const galCanvas = {x:100, y:100, r:10};
+for(let i=0;i<3;i++){
+const outerR = Math.max(1, galCanvas.r*2-i*30);
+const ellipseW = Math.max(1, galCanvas.r-i*20);
+const ellipseH = Math.max(1, galCanvas.r*0.375-i*8);
+const g2 = skyCtx.createRadialGradient(galCanvas.x,galCanvas.y,0,galCanvas.x,galCanvas.y,outerR);
+g2.addColorStop(0, `rgba(230,220,255,${Math.max(0,0.7-i*0.15)})`);
+g2.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = g2;
+skyCtx.beginPath(); skyCtx.ellipse(galCanvas.x,galCanvas.y,ellipseW,ellipseH,0.6,0,Math.PI*2); skyCtx.fill();
+}
+for(let arm=0; arm<2; arm++){
+for(let j=0; j<14; j++){
+const ang = (j/14)*Math.PI*2.2 + arm*Math.PI + 0.6;
+const dist = (j/14)*galCanvas.r*1.8;
+const ax = galCanvas.x + Math.cos(ang)*dist;
+const ay = galCanvas.y + Math.sin(ang)*dist*0.4;
+const sizeBlob = Math.max(1, galCanvas.r*0.25*(1-j/16));
+const armGrad = skyCtx.createRadialGradient(ax,ay,0,ax,ay,sizeBlob);
+armGrad.addColorStop(0, `rgba(210,200,255,${Math.max(0,0.35*(1-j/14))})`);
+armGrad.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = armGrad;
+skyCtx.beginPath(); skyCtx.arc(ax,ay,sizeBlob,0,Math.PI*2); skyCtx.fill();
+}
+}
+
+
+const skyTex = new THREE.CanvasTexture(skyCanvas);
+skyTex.needsUpdate = true;
+
+skyTex.mapping = THREE.EquirectangularReflectionMapping;
+
+
+
 // SCENE
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000005);
+scene.background = skyTex;
 
 // CAMERA + PIVOT
 const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+// ── ROTATE-TO-LANDSCAPE PROMPT (mobile only) ──
+if(isMobile){
+const rotateOverlay = document.createElement('div');
+rotateOverlay.id = 'rotate-overlay';
+rotateOverlay.innerHTML = 'Please rotate your device to landscape for the best experience';
+rotateOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000000;color:#00ccff;font-size:20px;font-family:sans-serif;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;padding:20px;box-sizing:border-box;';
+document.body.appendChild(rotateOverlay);
+
+const checkOrientation = () => {
+if(window.innerHeight > window.innerWidth){
+rotateOverlay.style.display = 'flex';
+} else {
+rotateOverlay.style.display = 'none';
+}
+};
+checkOrientation();
+window.addEventListener('resize', checkOrientation);
+window.addEventListener('orientationchange', checkOrientation);
+}
 const fov = W / H < 1 ? 60 : 35;
 const camera = new THREE.PerspectiveCamera(fov, W/H, 0.1, 3000)
 const camDist = isMobile ? 780 : 580;
 const camY = isMobile ? -25 : -10;
 const pivot = new THREE.Object3D();
-pivot.position.set(0, camY, camDist); // pivot IS the camera's eye position now
+pivot.position.set(0, camY - 17, camDist);
 scene.add(pivot);
 pivot.add(camera);
-camera.position.set(0, 0, 0); // zero offset — rotating pivot just turns the view, no swinging
-camera.lookAt(0, -10, -50);
+camera.position.set(0, 0, 0);
+camera.lookAt(0, -55, 0);
+
 
 // RENDERER
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -102,45 +227,35 @@ const leftPl = pl(0x0044ff, 5, 400, -HW-60, 0, -50);
 const rightPl = pl(0x6600aa, 5, 400, HW+60, 0, -50);
 
 // Portal lights
-const bpL1 = new THREE.RectAreaLight(0xff00ff, 8, 30, 20);
+const bpL1 = new THREE.RectAreaLight(0xff00ff, 2, 30, 20);
 bpL1.position.set(-55, -1, -HD+5);
 bpL1.lookAt(-55, -1, 0);
-scene.add(bpL1);
-const bpL2 = new THREE.RectAreaLight(0x00ccff, 8, 30, 20);
+// scene.add(bpL1); // disabled — was causing floor light bleed near figure
+const bpL2 = new THREE.RectAreaLight(0x00ccff, 2, 30, 20);
 bpL2.position.set(0, -6, -HD+5);
 bpL2.lookAt(0, -6, 0);
-scene.add(bpL2);
-const bpL3 = new THREE.RectAreaLight(0xff00ff, 8, 30, 20);
+// scene.add(bpL2); // disabled — was causing floor light bleed near figure
+const bpL3 = new THREE.RectAreaLight(0xff00ff, 2, 30, 20);
 bpL3.position.set(55, -1, -HD+5);
 bpL3.lookAt(55, -1, 0);
-scene.add(bpL3);
+// scene.add(bpL3); // disabled — was causing floor light bleed near figure
+
+
 
 pl(0x4466aa, 4, 300, 0, HH, -HD-5);
 pl(0x4466aa, 10, 600, -HW-80, 0, -HD/2);
 pl(0x4466aa, 10, 600, HW+80, 0, -HD/2);
 pl(0xaaccff, 15, 400, 0, 0, 50);
-
+pl(0x8899cc, 20, 1200, 0, camY, camDist);
 // ── PROCEDURAL ENVIRONMENT MAP for glass reflections ──
 const pmremGenerator = new THREE.PMREMGenerator(renderer);
 pmremGenerator.compileEquirectangularShader();
 
-const envCanvas = document.createElement('canvas');
-envCanvas.width = 1024; envCanvas.height = 512;
-const ec = envCanvas.getContext('2d')!;
-const skyGrad = ec.createLinearGradient(0,0,0,512);
-skyGrad.addColorStop(0, '#334455');
-skyGrad.addColorStop(0.3, '#445566');
-skyGrad.addColorStop(0.5, '#223344');
-skyGrad.addColorStop(0.7, '#112233');
-skyGrad.addColorStop(1, '#000511');
-ec.fillStyle = skyGrad; ec.fillRect(0,0,1024,512);
-ec.fillStyle = 'rgba(200,200,220,0.4)';
-ec.beginPath(); ec.arc(RH+50,180,25,0,Math.PI*2); ec.fill();
-const envTexture = new THREE.CanvasTexture(envCanvas);
-envTexture.mapping = THREE.EquirectangularReflectionMapping;
-const envMap = pmremGenerator.fromEquirectangular(envTexture).texture;
+
+const starEnvMap = pmremGenerator.fromEquirectangular(skyTex).texture;
 // Don't set scene.environment globally — apply only to glass
 pmremGenerator.dispose();
+
 
 // ── FLOOR TEXTURE — Blue Epoxy ──
 const floorCanvas = document.createElement('canvas');
@@ -223,55 +338,108 @@ cc.stroke();
 const ceilTex = new THREE.CanvasTexture(ceilCanvas);
 ceilTex.wrapS=ceilTex.wrapT=THREE.RepeatWrapping;
 ceilTex.repeat.set(3,3);
-const ceilMat = new THREE.MeshStandardMaterial({
-map: ceilTex,
-bumpMap: ceilTex,
-bumpScale: 0.15,
-roughness: 0.75,
+const ceilMat = new THREE.MeshPhysicalMaterial({
+color: new THREE.Color(0x4a7db0),
+transparent: true,
+opacity: 0.45,
+roughness: 0.18,
 metalness: 0.0,
-emissive: new THREE.Color(0x553322),
-emissiveIntensity: 0.25,
+transmission: 0.4,
+thickness: 1.2,
+ior: 1.6,
+reflectivity: 0.45,
+specularIntensity: 0.5,
+specularColor: new THREE.Color(0xaaddff),
+clearcoat: 0.4,
+clearcoatRoughness: 0.15,
+envMap: starEnvMap,
+envMapIntensity: 0.7,
+side: THREE.DoubleSide,
+depthWrite: true,
 });
 
 // ── GLASS MATERIAL ──
 const glassMat = new THREE.MeshPhysicalMaterial({
-color: new THREE.Color(0x4477aa),
+color: new THREE.Color(0x4a7db0),
 transparent: true,
-opacity: 1.0,
-roughness: 0.03,
+opacity: 0.45,
+roughness: 0.18,
 metalness: 0.0,
-transmission: 0.9,
-thickness: 0.5,
-ior: 1.5,
-reflectivity: 0.9,
-clearcoat: 1.0,
-clearcoatRoughness: 0.05,
-envMap: envMap,
-envMapIntensity: 1.4,
+transmission: 0.4,
+thickness: 1.2,
+ior: 1.6,
+reflectivity: 0.45,
+specularIntensity: 0.5,
+specularColor: new THREE.Color(0xaaddff),
+clearcoat: 0.4,
+clearcoatRoughness: 0.15,
+envMap: starEnvMap,
+envMapIntensity: 0.7,
 side: THREE.DoubleSide,
-depthWrite: false,
+depthWrite: true,
 });
-const glassInnerMat = new THREE.MeshPhongMaterial({
-color: new THREE.Color(0x335588),
-emissive: new THREE.Color(0x112244),
-emissiveIntensity: 0.4,
-specular: new THREE.Color(0xffffff),
-shininess: 1200,
+
+const fresnelGlowMat = new THREE.ShaderMaterial({
+uniforms: {
+glowColor: { value: new THREE.Color(0x66ccff) },
+},
+vertexShader: `
+varying vec3 vNormal;
+varying vec3 vViewDir;
+void main() {
+vNormal = normalize(normalMatrix * normal);
+vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+vViewDir = normalize(-mvPosition.xyz);
+gl_Position = projectionMatrix * mvPosition;
+}
+`,
+fragmentShader: `
+uniform vec3 glowColor;
+varying vec3 vNormal;
+varying vec3 vViewDir;
+void main() {
+loat fresnel = pow(1.0 - abs(dot(vNormal, vViewDir)), 4.0);
+float glow = max(fresnel * 0.25, 0.05);
+gl_FragColor = vec4(glowColor, glow);
+}
+`,
 transparent: true,
-opacity: 0.3,
 side: THREE.DoubleSide,
+blending: THREE.AdditiveBlending,
 depthWrite: false,
 });
+
 
 // ── NEON TRIM MATERIALS ──
 const cyanMat = new THREE.MeshStandardMaterial({color:0x00ccff, emissive:0x00aaff, emissiveIntensity:2});
 const purpleMat = new THREE.MeshStandardMaterial({color:0xffaa88, emissive:0xff8844, emissiveIntensity:0.5});
+const truePurpleMat = new THREE.MeshStandardMaterial({color:0x9988bb, emissive:0x7766aa, emissiveIntensity:1}); 
 const dimMat = new THREE.MeshStandardMaterial({color:0x9988bb, emissive:0x7766aa, emissiveIntensity:1});
 
 // ── HELPERS ──
+function addFresnelGlow(w:number,h:number,x:number,y:number,z:number,ry:number,offsetX:number=0,offsetZ:number=0){
+const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), fresnelGlowMat);
+m.position.set(x+offsetX,y,z+offsetZ); m.rotation.y = ry;
+m.frustumCulled = false;
+scene.add(m);
+return m;
+}
+function addHorizontalFresnelGlow(w:number,d:number,x:number,y:number,z:number,offsetY:number=0){
+const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), fresnelGlowMat);
+m.position.set(x,y+offsetY,z); m.rotation.x = Math.PI/2;
+m.frustumCulled = false;
+scene.add(m);
+return m;
+}
 function addPlane(w:number,h:number,x:number,y:number,z:number,ry:number,mat:THREE.Material){
 const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),mat);
 m.position.set(x,y,z); m.rotation.y=ry;
+m.frustumCulled=false;
+scene.add(m); return m;
+}
+function addHorizontalPlane(w:number,d:number,x:number,y:number,z:number,mat:THREE.Material){
+const m=new THREE.Mesh(new THREE.PlaneGeometry(w,d),mat);
+m.position.set(x,y,z); m.rotation.x=Math.PI/2;
 m.frustumCulled=false;
 scene.add(m); return m;
 }
@@ -305,53 +473,61 @@ const videoMat = new THREE.MeshBasicMaterial({ map: videoTexture, color: new THR
 const videoW = 160;
 const videoH = videoW * 9/16;
 const videoScreen = new THREE.Mesh(new THREE.PlaneGeometry(videoW, videoH), videoMat);
-videoScreen.position.set(0, 25, -HD + 2);
+videoScreen.position.set(0, 10, -HD - 5);
 scene.add(videoScreen);
+
 
 // ── GLASS WALLS — 2 layers ──
 addPlane(BW, RH+50, 0, 25, -HD, 0, glassMat);
-addPlane(BW, RH+50, 0, 25, -HD+1, 0, glassInnerMat);
+addFresnelGlow(BW, RH+50, 0, 25, -HD, 0, 0, 0.5);
 const sideGlassMat = glassMat.clone();
-sideGlassMat.transmission = 0.3;
-addPlane(RD, RH+50, -HW, 25, 0, Math.PI/2, sideGlassMat);
-addPlane(RD, RH+50, -HW+1,25, 0, Math.PI/2, glassInnerMat);
-addPlane(RD, RH+50, HW, 25, 0, -Math.PI/2, sideGlassMat);
-addPlane(RD, RH+50, HW-1,25, 0, -Math.PI/2, glassInnerMat);
+const RD2 = 850; // extended depth so side walls reach the same front edge as the floor
+addPlane(RD2, RH+50, -HW, 25, 75, Math.PI/2, sideGlassMat);
+addFresnelGlow(RD2, RH+50, -HW, 25, 75, Math.PI/2, 0.5, 0);
+addPlane(RD2, RH+50, HW, 25, 75, -Math.PI/2, sideGlassMat);
+addFresnelGlow(RD2, RH+50, HW, 25, 75, -Math.PI/2, -0.5, 0);
 
 
 // ── FLOOR ──
-addBox(BW+100, 1, 2000, 0, -HH-0.5, 0, floorMat);
+addBox(BW, 1, 700, 0, -HH-0.5, 75, floorMat);
 
 // ── CEILING ──
-addBox(BW+100, 1, 2000, 0, HH+50, 0, ceilMat);
+addHorizontalPlane(BW, 700, 0, HH+50, 75, ceilMat);
+addHorizontalFresnelGlow(BW, 700, 0, HH+50, 75, -0.5);
+
+
 
 // ── CYAN CEILING NEON ──
 addBox(BW, 4, 4, 0, HH+50, -HD, dimMat);
-addBox(BW, 3, 3, 0, HH+50, HD, dimMat);
-addBox( 3, 3, RD, -HW, HH+50, 0, dimMat);
-addBox(3, 3, RD, HW, HH+50, 0, dimMat);
+addBox(BW, 3, 3, 0, HH+50, 420, dimMat);
+addBox( 3, 3, 700, -HW, HH+50, 75, dimMat);
+addBox(3, 3, 700, HW, HH+50, 75, dimMat);
+
 
 
 // ── PURPLE FLOOR NEON ──
 const frontFloorMat = new THREE.MeshStandardMaterial({color:0xfff8f0, emissive:0xffeedd, emissiveIntensity:0.15});
 addBox(BW, 4, 4, 0, -HH+2, -HD, purpleMat);
-addBox(BW, 1, 1, 0, -HH+2, HD, frontFloorMat);
-addBox(4, 4, RD, -HW,-HH+2, 0, purpleMat);
-addBox(4, 4, RD, HW,-HH+2, 0, purpleMat);
+addBox(BW+8, 3, 3, 0, -HH+2.5, 426, frontFloorMat);
+addBox(4, 4, 700, -HW,-HH+2, 75, purpleMat);
+addBox(4, 4, 700, HW,-HH+2, 75, purpleMat);
+
 
 
 // ── SECONDARY DIM BORDER ──
 addBox(BW, .5, .5, 0, -HH-.3, -HD, dimMat);
-addBox(BW, 1.5, 1.5, 0, -HH+.2, HD, purpleMat);
-addBox(BW, 9, 9, 0, -HH-5, HD, dimMat);
+addBox(BW+8, 7, 7, 0, -HH-2.5, 426, truePurpleMat);
 addBox(.5, .5, RD, -HW,-HH-.3, 0, dimMat);
 addBox(.5, .5, RD, HW,-HH-.3, 0, dimMat);
+
+
 
 // ── VERTICAL CORNERS ──
 addBox(1.5, RH+47, 1.5, -HW+2, 24, -HD+2, dimMat); // back-left
 addBox(1.5, RH+47, .6, HW-2, 24, -HD+2, dimMat); // back-right
-addBox(1.5, RH+47, 1.5, -HW+3, 24, HD-3, cyanMat); // front-left
-addBox(1.5, RH+47, 1.5, HW-3, 24, HD-3, cyanMat); // front-right
+addBox(1.5, RH+47, 1.5, -HW+3, 24, 420, cyanMat); // front-left
+addBox(1.5, RH+47, 1.5, HW-3, 24, 420, cyanMat); // front-right
+
 
 // ── MEDITATION FIGURE — 3D CHARACTER (replaces old video hologram) ──
 // The GLB was exported from Unreal -> Blender with two static poses baked in
@@ -373,7 +549,7 @@ let figureModel: THREE.Object3D | null = null;
 // character needs an additional multiplier to read at the right size next to
 // the room geometry. Start here and adjust FIGURE_SCALE to taste.
 const FIGURE_SCALE = 55;
-const FIGURE_POSITION = new THREE.Vector3(0, -HH - 46, 8);
+const FIGURE_POSITION = new THREE.Vector3(0, -HH - 46, 108);
 
 // Dedicated light so the figure actually shows facial/body shading instead
 // of reading as a flat silhouette.
@@ -476,7 +652,7 @@ undefined,
 
 // ── FIRE BOWL ──
 const bowlGroup = new THREE.Group();
-bowlGroup.position.set(0, -HH + 3, 70);
+bowlGroup.position.set(0, -HH + 3, 210);
 scene.add(bowlGroup);
 
 // Bowl base
@@ -506,26 +682,79 @@ for(let i=0; i<18; i++){
 const spr = new THREE.Sprite(new THREE.SpriteMaterial({
 map: fireTex,
 transparent: true,
-opacity: 0.8,
+opacity: 0.55,
 blending: THREE.AdditiveBlending,
-depthWrite: false,
+depthWrite: false, depthTest: false,
 }));
-const s = 2 + Math.random()*2;
-spr.scale.set(s, s*1.4, 1);
-spr.position.set((Math.random()-0.5)*3, Math.random()*4, (Math.random()-0.5)*3);
+const s = 3.5 + Math.random()*1.5;
+spr.scale.set(s, s*1.6, 1);
+const spawnRadius = 1.8; // tighter cluster so flames overlap into one mass
+const angle = (i / 18) * Math.PI*2 + Math.random()*0.4;
+const dist = Math.random()*spawnRadius;
+spr.position.set(Math.cos(angle)*dist, 2.5 + Math.random()*1, Math.sin(angle)*dist);
 spr.userData.baseY = spr.position.y;
-spr.userData.speed = 0.7 + Math.random()*0.5;
-spr.userData.phase = Math.random()*Math.PI*2;
+spr.userData.speed = 1.0 + Math.random()*0.15; // less speed variance = more unified motion
+spr.userData.phase = (i / 18) * Math.PI*2; // evenly distributed, not fully random
 spr.userData.baseX = spr.position.x;
 spr.userData.baseZ = spr.position.z;
-spr.userData.riseOffset = Math.random()*6;
+spr.userData.riseOffset = (i / 18) * 3; // staggered but structured rise timing
 bowlGroup.add(spr);
 fireParticles.push(spr);
 }
 
+
 const fireLight = new THREE.PointLight(0xff6622, 15, 60);
 fireLight.position.set(0, 4, 0);
 bowlGroup.add(fireLight);
+
+// ── FLOOR TEXT: "FLAME OF C" (fire-gradient style) ──
+const floorTextCanvas = document.createElement('canvas');
+floorTextCanvas.width = 1024; floorTextCanvas.height = 256;
+const ftCtx = floorTextCanvas.getContext('2d')!;
+ftCtx.clearRect(0,0,1024,256);
+ftCtx.textAlign = 'center';
+ftCtx.textBaseline = 'middle';
+
+const floorFireGrad = ftCtx.createLinearGradient(0, 40, 0, 220);
+floorFireGrad.addColorStop(0, '#886644');
+floorFireGrad.addColorStop(0.5, '#775522');
+floorFireGrad.addColorStop(0.55, '#993311');
+floorFireGrad.addColorStop(0.75, '#991100');
+floorFireGrad.addColorStop(1, '#880000');
+ftCtx.shadowColor = '#ff6600';
+ftCtx.shadowBlur = 12;
+ftCtx.fillStyle = floorFireGrad;
+ftCtx.font = 'bold 70px Georgia';
+ftCtx.fillText('FLAME', 280, 140);
+ftCtx.fillText('OF', 540, 140);
+
+ftCtx.shadowBlur = 18;
+ftCtx.font = 'bold 130px Georgia';
+ftCtx.fillText('C', 720, 140);
+
+// Outline pass for extra definition against the fire glow
+ftCtx.shadowBlur = 0;
+ftCtx.strokeStyle = 'rgba(120,20,0,0.6)';
+ftCtx.lineWidth = 2;
+ftCtx.font = 'bold 70px Georgia';
+const strokeOffsetFLAME = -6; // negative = move left, positive = move right
+const strokeOffsetOF = 8; // negative = move left, positive = move right
+ftCtx.strokeText('FLAME', 280 + strokeOffsetFLAME, 140);
+ftCtx.strokeText('OF', 540 + strokeOffsetOF, 140);
+ftCtx.font = 'bold 130px Georgia';
+ftCtx.strokeText('C', 720, 140);
+
+const floorTextTex = new THREE.CanvasTexture(floorTextCanvas);
+const floorTextMesh = new THREE.Mesh(
+new THREE.PlaneGeometry(450, 100),
+new THREE.MeshBasicMaterial({ map: floorTextTex, transparent: true, depthWrite: false, depthTest: false })
+);
+floorTextMesh.rotation.x = -Math.PI/2;
+floorTextMesh.position.set(20, -HH-50, 160);
+floorTextMesh.renderOrder = 10;
+floorTextMesh.frustumCulled = false;
+scene.add(floorTextMesh);
+
 
 // ── DIGITAL CLOCK — WIDE HORIZONTAL ──
 const clockCanvas = document.createElement('canvas');
@@ -618,7 +847,7 @@ clockCtx.fillText(now.getHours() >= 12 ? 'PM' : 'AM', 100, 35);
 
 // ── MAIN TIME (center) ──
 clockCtx.font = 'bold 80px monospace';
-clockCtx.fillStyle = '#ffffff';
+clockCtx.fillStyle = 'rgba(255,255,255,0.7)';
 clockCtx.textAlign = 'center';
 clockCtx.fillText(`${h}:${m}`, 390, 120);
 
@@ -674,11 +903,11 @@ const ch2 = String(cityTime.getUTCHours()).padStart(2,'0');
 const cm2 = String(cityTime.getUTCMinutes()).padStart(2,'0');
 
 tickerCtx.font = 'bold 20px monospace';
-tickerCtx.fillStyle = 'rgba(0,220,255,1.0)';
+tickerCtx.fillStyle = 'rgba(0,220,255,0.5)';
 tickerCtx.textAlign = 'left';
 tickerCtx.fillText(`${c.city}`, cx + 10, 28);
 tickerCtx.font = 'bold 30px monospace';
-tickerCtx.fillStyle = '#ffffff';
+tickerCtx.fillStyle = 'rgba(255,255,255,0.45)';
 tickerCtx.fillText(`${ch2}:${cm2}`, cx + 10, 52);
 
 // Separator
@@ -698,7 +927,7 @@ const clockInterval = setInterval(updateClock, 200);
 // Main clock (top section - time, date, temp, days)
 const clockMesh = new THREE.Mesh(
 new THREE.PlaneGeometry(295, 30),
-new THREE.MeshBasicMaterial({ map: clockTex, transparent: true, depthWrite: false })
+new THREE.MeshBasicMaterial({ map: clockTex, transparent: true, depthWrite: false, depthTest: false })
 );
 clockMesh.position.set(-HW+0, 112, -HD+150);
 clockMesh.rotation.y = Math.PI/2;
@@ -707,7 +936,7 @@ scene.add(clockMesh);
 // World time ticker (separate mesh)
 const tickerMesh = new THREE.Mesh(
 new THREE.PlaneGeometry(295, 30),
-new THREE.MeshBasicMaterial({ map: tickerTex, transparent: true, depthWrite: false })
+new THREE.MeshBasicMaterial({ map: tickerTex, transparent: true, depthWrite: false, depthTest: false })
 );
 tickerMesh.position.set(HW-0, 112, -HD+150);
 tickerMesh.rotation.y = -Math.PI/2;
@@ -757,7 +986,7 @@ const logoInterval = setInterval(updateLogoTicker, 60);
 
 const logoMesh = new THREE.Mesh(
 new THREE.PlaneGeometry(BW, 15),
-new THREE.MeshBasicMaterial({ map: logoTex, transparent: true, depthWrite: false })
+new THREE.MeshBasicMaterial({ map: logoTex, transparent: true, depthWrite: false, depthTest: false })
 );
 logoMesh.position.set(0, 115, -HD+0);
 logoMesh.frustumCulled = false;
@@ -769,8 +998,8 @@ const portalData = [
 // Back wall portals — z = -HD+2
 { label:'PODCAST', x:-200, y:-10, z:-HD+2, ry:0, color:0x00ccff, eColor:0x0099cc, icon:'🎙️' },
 { label:'GALLERY', x:-120, y:40, z:-HD+2, ry:0, color:0xff44aa, eColor:0xcc2288, icon:'🖼️' },
-{ label:'ABOUT US', x:0, y:94, z:-HD+1, ry:0, color:0xffaa00, eColor:0xcc8800, icon:'👁️' },
-{ label:'INDIVIDUAL', x:120, y:40, z:-HD+2, ry:0, color:0x44ff88, eColor:0x22cc66, icon:'🧘' },
+{ label:'JOURNEY MAP', x:0, y:80, z:-HD+1, ry:0, color:0xffaa00, eColor:0xcc8800, icon:'👁️' },
+{ label:'TEACHERS TRAINING', x:120, y:40, z:-HD+2, ry:0, color:0x44ff88, eColor:0x22cc66, icon:'🧘' },
 { label:'COMMUNITY', x:200, y:-10, z:-HD+2, ry:0, color:0xaa44ff, eColor:0x8822cc, icon:'👥' },
 // Left wall portals — x = -HW+2
 { label:'PERSONAL CLASS', x:-HW+2, y:50, z:-180, ry:Math.PI/2, color:0xff6644, eColor:0xcc4422, icon:'🎓' },
@@ -848,35 +1077,52 @@ const iconCanvas = document.createElement('canvas');
 iconCanvas.width = 256; iconCanvas.height = 256;
 const iconCtx = iconCanvas.getContext('2d')!;
 iconCtx.clearRect(0,0,256,256);
-iconCtx.font = '140px serif';
+iconCtx.font = '180px serif';
 iconCtx.textAlign = 'center';
 iconCtx.textBaseline = 'middle';
 iconCtx.fillText(p.icon, 128, 138);
 const iconTex = new THREE.CanvasTexture(iconCanvas);
 const iconMesh = new THREE.Mesh(
-new THREE.PlaneGeometry(16, 16),
-new THREE.MeshBasicMaterial({ map: iconTex, transparent: true, depthWrite: false })
+new THREE.PlaneGeometry(21, 21),
+new THREE.MeshBasicMaterial({ map: iconTex, transparent: true, depthWrite: false, depthTest: false })
 );
 iconMesh.position.z = 0.5;
 group.add(iconMesh);
 
 // Label
-
-
 const canvas = document.createElement('canvas');
-canvas.width = 512; canvas.height = 128;
+canvas.width = 1024; canvas.height = 256;
 const ctx = canvas.getContext('2d')!;
-ctx.clearRect(0,0,512,128);
+ctx.clearRect(0,0,1024,256);
 ctx.fillStyle = '#'+p.color.toString(16).padStart(6,'0');
-ctx.font = 'bold 52px Arial';
+ctx.font = 'bold 128px Arial';
 ctx.textAlign = 'center';
 ctx.textBaseline = 'middle';
-ctx.fillText(p.label, 256, 64);
+ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+ctx.lineWidth = 6;
+const textWidth = ctx.measureText(p.label).width;
+const maxWidthActual = 960;
+if(textWidth > maxWidthActual){
+const scaleFactor = maxWidthActual / textWidth;
+ctx.save();
+ctx.translate(512, 128);
+ctx.scale(scaleFactor, 1);
+ctx.translate(-512, -128);
+ctx.strokeText(p.label, 512, 128);
+ctx.fillText(p.label, 512, 128);
+ctx.restore();
+} else {
+ctx.strokeText(p.label, 512, 128);
+ctx.fillText(p.label, 512, 128);
+}
 const labelTex = new THREE.CanvasTexture(canvas);
 const labelMesh = new THREE.Mesh(
-new THREE.PlaneGeometry(40, 10),
-new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, depthWrite: false })
+new THREE.PlaneGeometry(68, 17),
+new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, depthWrite: false, depthTest: false })
 );
+
+
+
 labelMesh.position.y = -22;
 group.add(labelMesh);
 
@@ -948,23 +1194,33 @@ composer.setSize(newW, newH);
 };
 window.addEventListener("resize", onResize);
 
-let drag=false, prevX=0, rotY=0, targetRotY=0;
-const ROT_LIMIT = isMobile ? 0.35: 0.25; // max look-around angle, in radians
-const onDown=(e:MouseEvent)=>{drag=true;prevX=e.clientX;};
-const onMove=(e:MouseEvent)=>{
-if(!drag)return;
-targetRotY=Math.max(-ROT_LIMIT,Math.min(ROT_LIMIT,targetRotY+(e.clientX-prevX)*0.0015));
-prevX=e.clientX;
-};
-const onUp=()=>{drag=false;};
-const onTouchStart=(e:TouchEvent)=>{drag=true;prevX=e.touches[0].clientX;};
-const onTouchMove=(e:TouchEvent)=>{
-if(!drag)return;
-targetRotY=Math.max(-ROT_LIMIT,Math.min(ROT_LIMIT,targetRotY+(e.touches[0].clientX-prevX)*0.0015));
-prevX=e.touches[0].clientX;
-};
+// ── FRESH DRAG-TO-LOOK (full 360°, camera rotates in place) ──
+let isDragging = false;
+let lastPointerX = 0;
+let yaw = 0; // left/right look
+const YAW_LIMIT = 0.1; // radians, ~34 degrees total range
+function startDrag(x:number){
+isDragging = true;
+lastPointerX = x;
+}
+function updateDrag(x:number){
+if(!isDragging) return;
+const deltaX = x - lastPointerX;
+yaw = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, yaw - deltaX * 0.0015));
+lastPointerX = x;
+}
+function endDrag(){
+isDragging = false;
+}
 
-const onTouchEnd=()=>{drag=false;};
+const onDown=(e:MouseEvent)=>startDrag(e.clientX);
+const onMove=(e:MouseEvent)=>updateDrag(e.clientX);
+const onUp=()=>endDrag();
+const onTouchStart=(e:TouchEvent)=>startDrag(e.touches[0].clientX);
+const onTouchMove=(e:TouchEvent)=>updateDrag(e.touches[0].clientX);
+const onTouchEnd=()=>endDrag();
+
+
 window.addEventListener("mousedown",onDown);
 window.addEventListener("mousemove",onMove);
 window.addEventListener("mouseup",onUp);
@@ -972,14 +1228,91 @@ window.addEventListener("touchstart",onTouchStart,{passive:true});
 window.addEventListener("touchmove",onTouchMove,{passive:true});
 window.addEventListener("touchend",onTouchEnd);
 
+
+
+
 // ── ANIMATE ──
 let t=0;
 const loop=()=>{
 t+=.012;
+scene.backgroundRotation.y += 0.0002;
 
-rotY += (targetRotY - rotY) * 0.05;
 
-pivot.rotation.y = rotY;
+
+if (Math.floor(t*60) % 3 === 0) { // update twinkle every few frames for performance
+scene.backgroundRotation.x = 1.6 + Math.PI; // adjusted to center the pole on the back wall
+skyCtx.fillStyle = '#000008';
+skyCtx.fillRect(0,0,2048,1024);
+nebulae.forEach(n => {
+const g = skyCtx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r);
+g.addColorStop(0, n.c);
+g.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = g;
+skyCtx.fillRect(n.x-n.r, n.y-n.r, n.r*2, n.r*2);
+});
+planets.forEach(p => {
+const g = skyCtx.createRadialGradient(p.x-p.r*0.4,p.y-p.r*0.4,p.r*0.1,p.x,p.y,p.r*1.1);
+g.addColorStop(0, p.c1);
+g.addColorStop(0.6, p.c2);
+g.addColorStop(1, '#000000');
+skyCtx.fillStyle = g;
+skyCtx.beginPath(); skyCtx.arc(p.x,p.y,p.r,0,Math.PI*2); skyCtx.fill();
+skyCtx.save();
+skyCtx.beginPath(); skyCtx.arc(p.x,p.y,p.r,0,Math.PI*2); skyCtx.clip();
+const shadow = skyCtx.createRadialGradient(p.x+p.r*0.5,p.y+p.r*0.5,0,p.x+p.r*0.3,p.y+p.r*0.3,p.r*1.2);
+shadow.addColorStop(0, 'rgba(0,0,0,0.55)');
+shadow.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = shadow;
+skyCtx.fillRect(p.x-p.r,p.y-p.r,p.r*2,p.r*2);
+skyCtx.restore();
+});const diskGrad = skyCtx.createRadialGradient(bh.x,bh.y,bh.r*0.5,bh.x,bh.y,bh.r*4);
+diskGrad.addColorStop(0, 'rgba(255,255,230,1.0)');
+diskGrad.addColorStop(0.15, 'rgba(255,220,140,0.9)');
+diskGrad.addColorStop(0.35, 'rgba(255,150,60,0.7)');
+diskGrad.addColorStop(0.6, 'rgba(220,70,30,0.4)');
+diskGrad.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = diskGrad;
+skyCtx.beginPath(); skyCtx.ellipse(bh.x,bh.y,bh.r*4,bh.r*0.7,0,0,Math.PI*2); skyCtx.fill();
+skyCtx.fillStyle = '#000000';
+skyCtx.beginPath(); skyCtx.arc(bh.x,bh.y,bh.r,0,Math.PI*2); skyCtx.fill();
+for(let i=0;i<3;i++){
+const outerR = Math.max(1, galCanvas.r*2-i*30);
+const ellipseW = Math.max(1, galCanvas.r-i*20);
+const ellipseH = Math.max(1, galCanvas.r*0.375-i*8);
+const g2 = skyCtx.createRadialGradient(galCanvas.x,galCanvas.y,0,galCanvas.x,galCanvas.y,outerR);
+g2.addColorStop(0, `rgba(230,220,255,${Math.max(0,0.7-i*0.15)})`);
+g2.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = g2;
+skyCtx.beginPath(); skyCtx.ellipse(galCanvas.x,galCanvas.y,ellipseW,ellipseH,0.6,0,Math.PI*2); skyCtx.fill();
+}
+for(let arm=0; arm<2; arm++){
+for(let j=0; j<14; j++){
+const ang = (j/14)*Math.PI*2.2 + arm*Math.PI + 0.6;
+const dist = (j/14)*galCanvas.r*1.8;
+const ax = galCanvas.x + Math.cos(ang)*dist;
+const ay = galCanvas.y + Math.sin(ang)*dist*0.4;
+const sizeBlob = Math.max(1, galCanvas.r*0.25*(1-j/16));
+const armGrad = skyCtx.createRadialGradient(ax,ay,0,ax,ay,sizeBlob);
+armGrad.addColorStop(0, `rgba(210,200,255,${Math.max(0,0.35*(1-j/14))})`);
+armGrad.addColorStop(1, 'rgba(0,0,0,0)');
+skyCtx.fillStyle = armGrad;
+skyCtx.beginPath(); skyCtx.arc(ax,ay,sizeBlob,0,Math.PI*2); skyCtx.fill();
+}
+}
+starData.forEach(s => {
+const flicker = s.twinkles ? s.baseA + Math.sin(t*s.speed + s.x*0.05 + s.y*0.03) * 0.35 : s.baseA;
+skyCtx.fillStyle = `rgba(255,255,255,${Math.max(0.1,Math.min(1,flicker))})`;
+skyCtx.beginPath(); skyCtx.arc(s.x,s.y,s.r,0,Math.PI*2); skyCtx.fill();
+});
+skyTex.needsUpdate = true;
+}
+
+
+pivot.rotation.y = yaw;
+
+
+
+
 
 
 fireParticles.forEach(spr => {
