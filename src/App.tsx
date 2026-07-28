@@ -160,7 +160,7 @@ window.addEventListener('orientationchange', checkOrientation);
 }
 const fov = W / H < 1 ? 60 : 35;
 const camera = new THREE.PerspectiveCamera(fov, W/H, 0.1, 3000)
-const camDist = isMobile ? 780 : 580;
+const camDist = isMobile ? 580 : 580;
 const camY = isMobile ? -25 : -10;
 const pivot = new THREE.Object3D();
 pivot.position.set(0, camY - 17, camDist);
