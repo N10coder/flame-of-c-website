@@ -160,7 +160,7 @@ window.addEventListener('orientationchange', checkOrientation);
 }
 const fov = W / H < 1 ? 60 : 35;
 const camera = new THREE.PerspectiveCamera(fov, W/H, 0.1, 3000)
-const camDist = isMobile ? 580 : 580;
+const camDist = isMobile ? 540 : 580;
 const camY = isMobile ? -25 : -10;
 const pivot = new THREE.Object3D();
 pivot.position.set(0, camY - 17, camDist);
@@ -398,7 +398,7 @@ uniform vec3 glowColor;
 varying vec3 vNormal;
 varying vec3 vViewDir;
 void main() {
-loat fresnel = pow(1.0 - abs(dot(vNormal, vViewDir)), 4.0);
+float fresnel = pow(1.0 - abs(dot(vNormal, vViewDir)), 44.0);
 float glow = max(fresnel * 0.25, 0.05);
 gl_FragColor = vec4(glowColor, glow);
 }
