@@ -1,4 +1,4 @@
-import React, { useEffect, useRef,  } from "react";
+import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -535,7 +535,6 @@ depthWrite: false,
 
 // ── NEON TRIM MATERIALS ──
 const cyanMat = new THREE.MeshStandardMaterial({color:0x00ccff, emissive:0x00aaff, emissiveIntensity:2});
-const purpleMat = new THREE.MeshStandardMaterial({color:0xffaa88, emissive:0x000000, emissiveIntensity:0});
 const truePurpleMat = new THREE.MeshStandardMaterial({color:0x9988bb, emissive:0x7766aa, emissiveIntensity:1}); 
 const dimMat = new THREE.MeshStandardMaterial({color:0x9988bb, emissive:0x7766aa, emissiveIntensity:1});
 

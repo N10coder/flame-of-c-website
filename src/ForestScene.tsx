@@ -1,5 +1,5 @@
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 export default function ForestScene() {
@@ -42,7 +42,7 @@ const loadingDiv = document.createElement('div');
 loadingDiv.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#0a1508;color:#8fbf6f;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;font-size:20px;z-index:9999;';
 loadingDiv.innerHTML = '<div>Entering the forest...</div><div id="loadpct" style="margin-top:10px;font-size:16px;opacity:0.7;">0%</div>';
 document.body.appendChild(loadingDiv);
-loadingManager.onProgress = (url, loaded, total) => {
+loadingManager.onProgress = (_url, loaded, total) => {
 const pct = Math.round((loaded / total) * 100);
 const el = document.getElementById('loadpct');
 if (el) el.textContent = pct + '%';
