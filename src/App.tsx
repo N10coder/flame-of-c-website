@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { VRButton } from "three/examples/jsm/webxr/VRButton.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
@@ -128,7 +130,6 @@ skyCtx.beginPath(); skyCtx.arc(ax,ay,sizeBlob,0,Math.PI*2); skyCtx.fill();
 
 const skyTex = new THREE.CanvasTexture(skyCanvas);
 skyTex.needsUpdate = true;
-
 skyTex.mapping = THREE.EquirectangularReflectionMapping;
 
 
@@ -140,44 +141,63 @@ scene.background = skyTex;
 // CAMERA + PIVOT
 const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 // ── ROTATE-TO-LANDSCAPE PROMPT (mobile only) ──
-if(isMobile){
-const rotateOverlay = document.createElement('div');
-rotateOverlay.id = 'rotate-overlay';
-rotateOverlay.innerHTML = 'Please rotate your device to landscape for the best experience';
-rotateOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000000;color:#00ccff;font-size:20px;font-family:sans-serif;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;padding:20px;box-sizing:border-box;';
-document.body.appendChild(rotateOverlay);
 
-const checkOrientation = () => {
-if(window.innerHeight > window.innerWidth){
-rotateOverlay.style.display = 'flex';
+const isPortrait = W / H < 1;
+
+// ── PORTRAIT (mobile/tablet vertical) CAMERA TUNING ──
+const PORTRAIT_FOV = 45;
+const PORTRAIT_CAM_DIST = 510;
+const PORTRAIT_CAM_Y = -20;
+const PORTRAIT_LOOK_Y = -80;
+
+// ── MOBILE/TABLET LANDSCAPE (sideways) CAMERA TUNING ──
+const MOBILE_LANDSCAPE_FOV = 35;
+const MOBILE_LANDSCAPE_CAM_DIST = 580;
+const MOBILE_LANDSCAPE_CAM_Y = -10;
+const MOBILE_LANDSCAPE_LOOK_Y = -55;
+
+// ── DESKTOP CAMERA TUNING ──
+const DESKTOP_FOV = 35;
+const DESKTOP_CAM_DIST = 580;
+const DESKTOP_CAM_Y = -10;
+const DESKTOP_LOOK_Y = -55;
+
+let fov, camDist, camY, lookY;
+if (isPortrait) {
+fov = PORTRAIT_FOV;
+camDist = PORTRAIT_CAM_DIST;
+camY = PORTRAIT_CAM_Y;
+lookY = PORTRAIT_LOOK_Y;
+} else if (isMobile) {
+fov = MOBILE_LANDSCAPE_FOV;
+camDist = MOBILE_LANDSCAPE_CAM_DIST;
+camY = MOBILE_LANDSCAPE_CAM_Y;
+lookY = MOBILE_LANDSCAPE_LOOK_Y;
 } else {
-rotateOverlay.style.display = 'none';
+fov = DESKTOP_FOV;
+camDist = DESKTOP_CAM_DIST;
+camY = DESKTOP_CAM_Y;
+lookY = DESKTOP_LOOK_Y;
 }
-};
-checkOrientation();
-window.addEventListener('resize', checkOrientation);
-window.addEventListener('orientationchange', checkOrientation);
-}
-const fov = W / H < 1 ? 60 : 35;
+
 const camera = new THREE.PerspectiveCamera(fov, W/H, 0.1, 3000)
-const camDist = isMobile ? 540 : 580;
-const camY = isMobile ? -25 : -10;
 const pivot = new THREE.Object3D();
 pivot.position.set(0, camY - 17, camDist);
 scene.add(pivot);
 pivot.add(camera);
 camera.position.set(0, 0, 0);
-camera.lookAt(0, -55, 0);
+camera.lookAt(0, lookY, 0);
+
 
 
 // RENDERER
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(W, H);
-renderer.setPixelRatio(isMobile ? 1 : Math.min(devicePixelRatio, 1.5));
+renderer.setPixelRatio(isMobile ? Math.min(devicePixelRatio, 2) : Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.9;
+renderer.toneMappingExposure = 1.15;
 renderer.xr.enabled = true;
 mount.appendChild(renderer.domElement);
 try {
@@ -186,25 +206,106 @@ mount.appendChild(VRButton.createButton(renderer));
 console.log('VR not supported on this device');
 }
 
+// ── VR CONTROLLERS ──
+const controller1 = renderer.xr.getController(0);
+const controller2 = renderer.xr.getController(1);
+scene.add(controller1);
+scene.add(controller2);
+
+const rayGeometry = new THREE.BufferGeometry().setFromPoints([
+new THREE.Vector3(0, 0, 0),
+new THREE.Vector3(0, 0, -5),
+]);
+const rayMat = new THREE.LineBasicMaterial({ color: 0x00ccff });
+const ray1 = new THREE.Line(rayGeometry, rayMat);
+const ray2 = new THREE.Line(rayGeometry, rayMat.clone());
+controller1.add(ray1);
+controller2.add(ray2);
+
+let inVR = false;
+renderer.xr.addEventListener('sessionstart', () => { inVR = true; });
+renderer.xr.addEventListener('sessionend', () => { inVR = false; });
+
+// VR controller portal selection (mirrors the mouse click system below)
+const vrRaycaster = new THREE.Raycaster();
+const tempMatrix = new THREE.Matrix4();
+function onControllerSelect(controller: THREE.Group) {
+tempMatrix.identity().extractRotation(controller.matrixWorld);
+vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+vrRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+for (const g of portalGroupsRef.current) {
+const hits = vrRaycaster.intersectObject(g.userData.hitZone);
+if (hits.length > 0) {
+g.userData.spinning = true;
+g.userData.spinT = 0;
+break;
+}
+}
+}
+controller1.addEventListener('selectstart', () => onControllerSelect(controller1));
+controller2.addEventListener('selectstart', () => onControllerSelect(controller2));
+
 // BLOOM
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(isMobile ? W/3 : W/1.5, isMobile ? H/3 : H/1.5), 0.6, 0.4, 0.3));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(isMobile ? W/1.8 : W/1.5, isMobile ? H/1.8 : H/1.5), 0.6, 0.4, 0.55));
+const smaaPass = new SMAAPass();
+composer.addPass(smaaPass);
+const colorGradeShader = {
+uniforms: {
+tDiffuse: { value: null },
+contrast: { value: 1.08 },
+saturation: { value: 1.12 },
+warmth: { value: 0.04 }, // positive = warmer, negative = cooler
+},
+vertexShader: `
+varying vec2 vUv;
+void main() {
+vUv = uv;
+gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`,
+fragmentShader: `
+uniform sampler2D tDiffuse;
+uniform float contrast;
+uniform float saturation;
+uniform float warmth;
+varying vec2 vUv;
+void main() {
+vec4 color = texture2D(tDiffuse, vUv);
 
+// Contrast
+color.rgb = (color.rgb - 0.5) * contrast + 0.5;
+
+// Saturation
+float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+color.rgb = mix(vec3(gray), color.rgb, saturation);
+
+// White balance (warm/cool)
+color.r += warmth;
+color.b -= warmth;
+
+gl_FragColor = color;
+}
+`
+};
+const colorGradePass = new ShaderPass(colorGradeShader);
+composer.addPass(colorGradePass);
 
 // LIGHTS
 function pl(c:number,i:number,d:number,x:number,y:number,z:number){
-const l=new THREE.PointLight(c,i,d);
+const l=new THREE.PointLight(c,i*25,d); // physically-correct lighting scale
 l.position.set(x,y,z);
 l.visible = true;
 scene.add(l); return l;
 }
 
+
 // AMBIENT
-scene.add(new THREE.AmbientLight(0xffffff, 0.1));
+scene.add(new THREE.AmbientLight(0xffffff, 1.3));
 
 // DIRECTIONAL — sun-like light
-const dirLight = new THREE.DirectionalLight(0xfff4e6, 0.3);
+const dirLight = new THREE.DirectionalLight(0xfff4e6, 0.2);
 dirLight.position.set(10, 15, 8);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.set(1024, 1024);
@@ -242,11 +343,9 @@ bpL3.lookAt(55, -1, 0);
 
 
 
-pl(0x4466aa, 4, 300, 0, HH, -HD-5);
-pl(0x4466aa, 10, 600, -HW-80, 0, -HD/2);
-pl(0x4466aa, 10, 600, HW+80, 0, -HD/2);
-pl(0xaaccff, 15, 400, 0, 0, 50);
-pl(0x8899cc, 20, 1200, 0, camY, camDist);
+pl(0x4466aa, 6, 300, 0, HH, -HD-5);
+pl(0xaaccff, 4, 400, 0, 0, 50);
+
 // ── PROCEDURAL ENVIRONMENT MAP for glass reflections ──
 const pmremGenerator = new THREE.PMREMGenerator(renderer);
 pmremGenerator.compileEquirectangularShader();
@@ -306,12 +405,36 @@ const roughTex = new THREE.CanvasTexture(roughCanvas);
 roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping;
 roughTex.repeat.set(8,8);
 
-const floorMat = new THREE.MeshStandardMaterial({
-map: floorTex,
-roughnessMap: roughTex,
-roughness: 0.15,
-metalness: 0.0,
+const textureLoader = new THREE.TextureLoader();
+
+const floorColorTex = textureLoader.load('/textures/floor/floor_color.jpg');
+const floorNormalTex = textureLoader.load('/textures/floor/floor_normal.jpg');
+const floorRoughTex = textureLoader.load('/textures/floor/floor_roughness.jpg');
+const floorAOTex = textureLoader.load('/textures/floor/floor_ao.jpg');
+
+
+floorColorTex.colorSpace = THREE.SRGBColorSpace;
+[floorColorTex, floorNormalTex, floorRoughTex, floorAOTex].forEach(tex => {
+tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+tex.repeat.set(4, 4);
+tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
 });
+floorColorTex.colorSpace = THREE.SRGBColorSpace;
+
+const floorMat = new THREE.MeshStandardMaterial({
+normalMap: floorNormalTex,
+normalScale: new THREE.Vector2(0.3, 0.3),
+roughnessMap: floorRoughTex,
+aoMap: floorAOTex,
+aoMapIntensity: 0.6,
+emissiveMap: floorColorTex,
+emissive: new THREE.Color(0x99ddff),
+emissiveIntensity: 1.5,
+roughness: 0.75,
+metalness: 0.0,
+color: new THREE.Color(0x000000),
+});
+
 
 // ── CEILING TEXTURE — Wood Panels ──
 const ceilCanvas = document.createElement('canvas');
@@ -398,7 +521,7 @@ uniform vec3 glowColor;
 varying vec3 vNormal;
 varying vec3 vViewDir;
 void main() {
-float fresnel = pow(1.0 - abs(dot(vNormal, vViewDir)), 44.0);
+float fresnel = pow(1.0 - abs(dot(vNormal, vViewDir)), 4.0);
 float glow = max(fresnel * 0.25, 0.05);
 gl_FragColor = vec4(glowColor, glow);
 }
@@ -412,7 +535,7 @@ depthWrite: false,
 
 // ── NEON TRIM MATERIALS ──
 const cyanMat = new THREE.MeshStandardMaterial({color:0x00ccff, emissive:0x00aaff, emissiveIntensity:2});
-const purpleMat = new THREE.MeshStandardMaterial({color:0xffaa88, emissive:0xff8844, emissiveIntensity:0.5});
+const purpleMat = new THREE.MeshStandardMaterial({color:0xffaa88, emissive:0x000000, emissiveIntensity:0});
 const truePurpleMat = new THREE.MeshStandardMaterial({color:0x9988bb, emissive:0x7766aa, emissiveIntensity:1}); 
 const dimMat = new THREE.MeshStandardMaterial({color:0x9988bb, emissive:0x7766aa, emissiveIntensity:1});
 
@@ -469,11 +592,11 @@ const err = video.error;
 console.error('VIDEO ERROR - code:', err?.code, 'message:', err?.message, 'src:', video.currentSrc);
 });
 video.addEventListener('loadeddata', () => console.log('VIDEO LOADED OK'));
-const videoMat = new THREE.MeshBasicMaterial({ map: videoTexture, color: new THREE.Color(0xaaaaaa) });
+const videoMat = new THREE.MeshBasicMaterial({ map: videoTexture, color: new THREE.Color(0xcccccc) });
 const videoW = 160;
 const videoH = videoW * 9/16;
 const videoScreen = new THREE.Mesh(new THREE.PlaneGeometry(videoW, videoH), videoMat);
-videoScreen.position.set(0, 10, -HD - 5);
+videoScreen.position.set(0, 10, -HD + 10);
 scene.add(videoScreen);
 
 
@@ -490,6 +613,8 @@ addFresnelGlow(RD2, RH+50, HW, 25, 75, -Math.PI/2, -0.5, 0);
 
 // ── FLOOR ──
 addBox(BW, 1, 700, 0, -HH-0.5, 75, floorMat);
+scene.children[scene.children.length - 1].receiveShadow = true;
+(scene.children[scene.children.length - 1] as THREE.Mesh).geometry.setAttribute('uv2', (scene.children[scene.children.length - 1] as THREE.Mesh).geometry.attributes.uv);
 
 // ── CEILING ──
 addHorizontalPlane(BW, 700, 0, HH+50, 75, ceilMat);
@@ -506,11 +631,11 @@ addBox(3, 3, 700, HW, HH+50, 75, dimMat);
 
 
 // ── PURPLE FLOOR NEON ──
-const frontFloorMat = new THREE.MeshStandardMaterial({color:0xfff8f0, emissive:0xffeedd, emissiveIntensity:0.15});
-addBox(BW, 4, 4, 0, -HH+2, -HD, purpleMat);
+const frontFloorMat = new THREE.MeshStandardMaterial({color:0xccbba8, emissive:0xffeedd, emissiveIntensity:0.08});
+addBox(BW, 4, 4, 0, -HH+2, -HD, dimMat);
 addBox(BW+8, 3, 3, 0, -HH+2.5, 426, frontFloorMat);
-addBox(4, 4, 700, -HW,-HH+2, 75, purpleMat);
-addBox(4, 4, 700, HW,-HH+2, 75, purpleMat);
+addBox(4, 4, 700, -HW,-HH+2, 75, dimMat);
+addBox(4, 4, 700, HW,-HH+2, 75, dimMat);
 
 
 
@@ -553,9 +678,12 @@ const FIGURE_POSITION = new THREE.Vector3(0, -HH - 46, 108);
 
 // Dedicated light so the figure actually shows facial/body shading instead
 // of reading as a flat silhouette.
-const figureLight = new THREE.PointLight(0xffffff, 320, 80);
-figureLight.position.set(0, -HH + 30, 30);
+const figureLight = new THREE.SpotLight(0xffaa55, 150, 185, Math.PI/12, 0.5, 0.5);
+figureLight.position.set(0, HH + 10, 108);
+figureLight.target.position.set(0, -HH - 30, 108);
 scene.add(figureLight);
+scene.add(figureLight.target);
+figureLight.castShadow = true;
 
 
 const gltfLoader = new GLTFLoader();
@@ -585,6 +713,7 @@ figureModel.traverse((child) => {
 if ((child as THREE.Mesh).isMesh) {
 (child as THREE.Mesh).material = cyanFigureMat;
 (child as THREE.Mesh).frustumCulled = false;
+(child as THREE.Mesh).castShadow = true;
 }
 });
 
@@ -709,51 +838,97 @@ bowlGroup.add(fireLight);
 
 // ── FLOOR TEXT: "FLAME OF C" (fire-gradient style) ──
 const floorTextCanvas = document.createElement('canvas');
-floorTextCanvas.width = 1024; floorTextCanvas.height = 256;
 const ftCtx = floorTextCanvas.getContext('2d')!;
-ftCtx.clearRect(0,0,1024,256);
+
+const floorFireGrad = (grad: CanvasGradient) => {
+grad.addColorStop(0., '#886644');
+grad.addColorStop(0.3, '#775522');
+grad.addColorStop(0.5, '#993311');
+grad.addColorStop(0.75, '#991100');
+grad.addColorStop(1, '#880000');
+return grad;
+};
+
+let floorTextMesh: THREE.Mesh;
+
+if (isPortrait) {
+// ── VERTICAL STACK: FLAME / OF / C, each centered, top to bottom ──
+floorTextCanvas.width = 512; floorTextCanvas.height = 1536;
+ftCtx.clearRect(0,0,512,1536);
 ftCtx.textAlign = 'center';
 ftCtx.textBaseline = 'middle';
 
-const floorFireGrad = ftCtx.createLinearGradient(0, 40, 0, 220);
-floorFireGrad.addColorStop(0, '#886644');
-floorFireGrad.addColorStop(0.5, '#775522');
-floorFireGrad.addColorStop(0.55, '#993311');
-floorFireGrad.addColorStop(0.75, '#991100');
-floorFireGrad.addColorStop(1, '#880000');
 ftCtx.shadowColor = '#ff6600';
+
 ftCtx.shadowBlur = 12;
-ftCtx.fillStyle = floorFireGrad;
-ftCtx.font = 'bold 70px Georgia';
-ftCtx.fillText('FLAME', 280, 140);
-ftCtx.fillText('OF', 540, 140);
+ftCtx.fillStyle = floorFireGrad(ftCtx.createLinearGradient(0, 160, 0, 360));
+ftCtx.font = 'bold 150px Georgia';
+ftCtx.fillText('FLAME', 256, 260);
 
-ftCtx.shadowBlur = 18;
-ftCtx.font = 'bold 130px Georgia';
-ftCtx.fillText('C', 720, 140);
+ftCtx.fillStyle = floorFireGrad(ftCtx.createLinearGradient(0, 670, 0, 870));
+ftCtx.fillText('OF', 256, 770);
 
-// Outline pass for extra definition against the fire glow
+ftCtx.shadowBlur = 12;
+ftCtx.fillStyle = floorFireGrad(ftCtx.createLinearGradient(0, 1130, 0, 1430));
+ftCtx.font = 'bold 260px Georgia';
+ftCtx.fillText('C', 256, 1280);
+
 ftCtx.shadowBlur = 0;
 ftCtx.strokeStyle = 'rgba(120,20,0,0.6)';
 ftCtx.lineWidth = 2;
-ftCtx.font = 'bold 70px Georgia';
-const strokeOffsetFLAME = -6; // negative = move left, positive = move right
-const strokeOffsetOF = 8; // negative = move left, positive = move right
-ftCtx.strokeText('FLAME', 280 + strokeOffsetFLAME, 140);
-ftCtx.strokeText('OF', 540 + strokeOffsetOF, 140);
-ftCtx.font = 'bold 130px Georgia';
-ftCtx.strokeText('C', 720, 140);
+ftCtx.font = 'bold 150px Georgia';
+ftCtx.strokeText('FLAME', 256, 260);
+ftCtx.strokeText('OF', 256, 770);
+ftCtx.font = 'bold 260px Georgia';
+ftCtx.strokeText('C', 256, 1280);
 
 const floorTextTex = new THREE.CanvasTexture(floorTextCanvas);
-const floorTextMesh = new THREE.Mesh(
+floorTextMesh = new THREE.Mesh(
+new THREE.PlaneGeometry(100, 220),
+new THREE.MeshBasicMaterial({ map: floorTextTex, transparent: true, depthWrite: false, depthTest: false })
+);
+floorTextMesh.rotation.x = -Math.PI/2;
+floorTextMesh.position.set(0, -HH-70, 160);
+} else {
+// ── HORIZONTAL: original layout ──
+floorTextCanvas.width = 2048; floorTextCanvas.height = 512;
+ftCtx.clearRect(0,0,2048,512);
+ftCtx.textAlign = 'center';
+ftCtx.textBaseline = 'middle';
+
+const grad = floorFireGrad(ftCtx.createLinearGradient(0, 10, 0, 340));
+ftCtx.shadowColor = '#ff6600';
+ftCtx.shadowBlur = 12;
+ftCtx.fillStyle = grad;
+ftCtx.font = 'bold 140px Georgia';
+ftCtx.fillText('FLAME', 560, 280);
+ftCtx.fillText('OF', 1080, 280);
+ftCtx.shadowBlur = 36;
+ftCtx.font = 'bold 260px Georgia';
+ftCtx.fillText('C', 1440, 280);
+
+ftCtx.shadowBlur = 0;
+ftCtx.strokeStyle = 'rgba(120,20,0,0.6)';
+ftCtx.lineWidth = 2;
+ftCtx.font = 'bold 140px Georgia';
+ftCtx.strokeText('FLAME', 560 - 22, 280);
+ftCtx.strokeText('OF', 1080 + 26, 280);
+ftCtx.font = 'bold 260px Georgia';
+ftCtx.strokeText('C', 1440, 280);
+
+const floorTextTex = new THREE.CanvasTexture(floorTextCanvas);
+floorTextMesh = new THREE.Mesh(
 new THREE.PlaneGeometry(450, 100),
 new THREE.MeshBasicMaterial({ map: floorTextTex, transparent: true, depthWrite: false, depthTest: false })
 );
 floorTextMesh.rotation.x = -Math.PI/2;
-floorTextMesh.position.set(20, -HH-50, 160);
+floorTextMesh.position.set(20, -HH-50, 170);
+}
+
 floorTextMesh.renderOrder = 10;
 floorTextMesh.frustumCulled = false;
 scene.add(floorTextMesh);
+
 
 
 // ── DIGITAL CLOCK — WIDE HORIZONTAL ──
@@ -902,12 +1077,12 @@ const cityTime = new Date(now.getTime() + c.offset * 3600000);
 const ch2 = String(cityTime.getUTCHours()).padStart(2,'0');
 const cm2 = String(cityTime.getUTCMinutes()).padStart(2,'0');
 
-tickerCtx.font = 'bold 20px monospace';
-tickerCtx.fillStyle = 'rgba(0,220,255,0.5)';
+tickerCtx.font = 'bold 22px monospace';
+tickerCtx.fillStyle = 'rgba(0,220,255,0.9)';
 tickerCtx.textAlign = 'left';
 tickerCtx.fillText(`${c.city}`, cx + 10, 28);
-tickerCtx.font = 'bold 30px monospace';
-tickerCtx.fillStyle = 'rgba(255,255,255,0.45)';
+tickerCtx.font = 'bold 32px monospace';
+tickerCtx.fillStyle = 'rgba(255,255,255,0.85)';
 tickerCtx.fillText(`${ch2}:${cm2}`, cx + 10, 52);
 
 // Separator
@@ -935,7 +1110,7 @@ scene.add(clockMesh);
 
 // World time ticker (separate mesh)
 const tickerMesh = new THREE.Mesh(
-new THREE.PlaneGeometry(295, 30),
+new THREE.PlaneGeometry(295, 23.6),
 new THREE.MeshBasicMaterial({ map: tickerTex, transparent: true, depthWrite: false, depthTest: false })
 );
 tickerMesh.position.set(HW-0, 112, -HD+150);
@@ -962,14 +1137,14 @@ logoWords.forEach((word,i) => {
 const cx = logoScrollX + (i + rep*logoWords.length) * logoItemW;
 logoCtx.font = 'italic bold 30px Arial';
 logoCtx.textAlign = 'left';
-logoCtx.fillStyle = '#8844aa';
-logoCtx.shadowColor = '#663388';
-logoCtx.shadowBlur = 8;
+logoCtx.fillStyle = '#cc88ee';
+logoCtx.shadowColor = '#aa66dd';
+logoCtx.shadowBlur = 20;
 logoCtx.fillText('FLAME OF', cx, 50);
 logoCtx.font = 'bold 44px Georgia';
 logoCtx.fillStyle = '#ffffff';
 logoCtx.shadowColor = '#ffffff';
-logoCtx.shadowBlur = 8;
+logoCtx.shadowBlur = 10;
 logoCtx.fillText('C', cx + 172, 50);
 logoCtx.font = 'bold 34px Arial';
 logoCtx.fillStyle = '#88aacc';
@@ -1010,6 +1185,7 @@ const portalData = [
 ];
 
 const portalGroups: THREE.Group[] = [];
+const portalGroupsRef = { current: portalGroups };
 portalData.forEach(p => {
 const group = new THREE.Group();
 group.position.set(p.x, p.y, p.z);
@@ -1191,6 +1367,7 @@ camera.aspect = newW / newH;
 camera.updateProjectionMatrix();
 renderer.setSize(newW, newH);
 composer.setSize(newW, newH);
+smaaPass.setSize(newW, newH);
 };
 window.addEventListener("resize", onResize);
 
@@ -1198,7 +1375,12 @@ window.addEventListener("resize", onResize);
 let isDragging = false;
 let lastPointerX = 0;
 let yaw = 0; // left/right look
-const YAW_LIMIT = 0.1; // radians, ~34 degrees total range
+// ── DRAG RANGE TUNING ──
+const PORTRAIT_YAW_LIMIT = 0.4;
+const MOBILE_LANDSCAPE_YAW_LIMIT = 0.1;
+const DESKTOP_YAW_LIMIT = 0.1;
+
+const YAW_LIMIT = isPortrait ? PORTRAIT_YAW_LIMIT : (isMobile ? MOBILE_LANDSCAPE_YAW_LIMIT : DESKTOP_YAW_LIMIT);
 function startDrag(x:number){
 isDragging = true;
 lastPointerX = x;
@@ -1206,7 +1388,8 @@ lastPointerX = x;
 function updateDrag(x:number){
 if(!isDragging) return;
 const deltaX = x - lastPointerX;
-yaw = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, yaw - deltaX * 0.0015));
+const DRAG_SENSITIVITY = isMobile ? 0.0025 : 0.0015; // shared by portrait + mobile-landscape
+yaw = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, yaw - deltaX * DRAG_SENSITIVITY));
 lastPointerX = x;
 }
 function endDrag(){
@@ -1310,6 +1493,29 @@ skyTex.needsUpdate = true;
 
 pivot.rotation.y = yaw;
 
+// VR thumbstick locomotion — moves the rig based on where the headset is looking
+if (inVR) {
+const session = renderer.xr.getSession();
+if (session) {
+for (const source of session.inputSources) {
+if (source.gamepad && source.handedness === 'left') {
+const [, , x, y] = source.gamepad.axes; // standard WebXR thumbstick axes
+if (Math.abs(x) > 0.15 || Math.abs(y) > 0.15) {
+const speed = 3;
+const headQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(headQuat);
+forward.y = 0; forward.normalize();
+const right = new THREE.Vector3(1, 0, 0).applyQuaternion(headQuat);
+right.y = 0; right.normalize();
+pivot.position.addScaledVector(forward, -y * speed * 0.02);
+pivot.position.addScaledVector(right, x * speed * 0.02);
+}
+}
+}
+}
+}
+
+
 
 
 
@@ -1342,7 +1548,6 @@ g.userData.spinT = 0;
 });
 const f=1+Math.sin(t*6.7)*.03;
 cyanMat.emissiveIntensity=2*f;
-purpleMat.emissiveIntensity=0.3*f;
 cyanTop.intensity=20*f;
 purpleBot.intensity=20*f;
 mainPl.intensity=30*f;
